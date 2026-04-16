@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/database"
@@ -81,6 +83,22 @@ func (cfg *apiConfig) handlerVideoMetaDelete(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (cfg *apiConfig) normalizeVideoURL(video database.Video) database.Video {
+	if video.VideoURL == nil || *video.VideoURL == "" {
+		return video
+	}
+
+	if strings.Contains(*video.VideoURL, ",") {
+		parts := strings.SplitN(*video.VideoURL, ",", 2)
+		if len(parts) == 2 {
+			url := fmt.Sprintf("%s/%s", strings.TrimRight(cfg.s3CfDistribution, "/"), parts[1])
+			video.VideoURL = &url
+		}
+	}
+
+	return video
+}
+
 func (cfg *apiConfig) handlerVideoGet(w http.ResponseWriter, r *http.Request) {
 	videoIDString := r.PathValue("videoID")
 	videoID, err := uuid.Parse(videoIDString)
@@ -95,13 +113,8 @@ func (cfg *apiConfig) handlerVideoGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	signedVideo, err := cfg.dbVideoToSignedVideo(video)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Couldn't generate presigned video URL", err)
-		return
-	}
-
-	respondWithJSON(w, http.StatusOK, signedVideo)
+	video = cfg.normalizeVideoURL(video)
+	respondWithJSON(w, http.StatusOK, video)
 }
 
 func (cfg *apiConfig) handlerVideosRetrieve(w http.ResponseWriter, r *http.Request) {
@@ -122,15 +135,10 @@ func (cfg *apiConfig) handlerVideosRetrieve(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	signedVideos := make([]database.Video, 0, len(videos))
+	normalizedVideos := make([]database.Video, 0, len(videos))
 	for _, video := range videos {
-		signedVideo, err := cfg.dbVideoToSignedVideo(video)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Couldn't generate presigned video URL", err)
-			return
-		}
-		signedVideos = append(signedVideos, signedVideo)
+		normalizedVideos = append(normalizedVideos, cfg.normalizeVideoURL(video))
 	}
 
-	respondWithJSON(w, http.StatusOK, signedVideos)
+	respondWithJSON(w, http.StatusOK, normalizedVideos)
 }
